@@ -125,7 +125,7 @@ class Inertia::Setup < BaseTask
     end
   CRYSTAL
 
-  ROOT_LAYOUT = <<-CRYSTAL
+  ROOT_LAYOUT = <<-'CRYSTAL'
     @[Inertia::RootLayout]
     class InertiaLayout
       include Lucky::HTMLPage
