@@ -7,14 +7,14 @@ authors:
 dependencies:
   lucky:
     github: luckyframework/lucky
-    version: ~> 1.0.0-rc1
+    version: ~> 1.4.0
   lucky_task:
     github: luckyframework/lucky_task
-    version: ~> 0.1.1
+    version: ~> 0.3.0
   habitat:
     github: luckyframework/habitat
-    version: ~> 0.4.7
+    version: ~> 0.4.9
 
-crystal: 1.6.2
+crystal: 1.16.3
 
 license: MIT
