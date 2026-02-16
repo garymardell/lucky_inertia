@@ -2,7 +2,7 @@ module Inertia
   module SharedData
     macro included
       # Storage for shared data blocks at the class level
-      class_property _shared_data_blocks : Array(Proc(HTTP::Server::Context, Hash(String, JSON::Any))) = [] of Proc(HTTP::Server::Context, Hash(String, JSON::Any))
+      class_property _shared_data_blocks : Array(Proc(HTTP::Server::Context, Lucky::Action, Hash(String, JSON::Any))) = [] of Proc(HTTP::Server::Context, Lucky::Action, Hash(String, JSON::Any))
     end
 
     # DSL macro for defining shared data
@@ -13,15 +13,24 @@ module Inertia
     #   )
     macro inertia_share(**props)
       {% for key, value in props %}
-        self._shared_data_blocks << ->(ctx : HTTP::Server::Context) {
-          result = Hash(String, JSON::Any).new
-          {% if value.is_a?(ProcLiteral) || value.is_a?(ProcPointer) %}
-            result[{{key.stringify}}] = JSON.parse(({{value}}).call.to_json)
-          {% else %}
+        {% if value.is_a?(ProcLiteral) %}
+          # Proc literal - needs to be wrapped to capture instance context
+          %proc = {{value}}
+          self._shared_data_blocks << ->(ctx : HTTP::Server::Context, action : Lucky::Action) {
+            result = Hash(String, JSON::Any).new
+            # Call the proc in the context of the action instance
+            value = action.instance_eval(&%proc)
+            result[{{key.stringify}}] = JSON.parse(value.to_json)
+            result
+          }
+        {% else %}
+          # Static value
+          self._shared_data_blocks << ->(ctx : HTTP::Server::Context, action : Lucky::Action) {
+            result = Hash(String, JSON::Any).new
             result[{{key.stringify}}] = JSON.parse({{value}}.to_json)
-          {% end %}
-          result
-        }
+            result
+          }
+        {% end %}
       {% end %}
     end
 
@@ -34,7 +43,7 @@ module Inertia
       current_class = self.class
       while current_class.responds_to?(:_shared_data_blocks)
         current_class._shared_data_blocks.each do |block|
-          block.call(context).each do |key, value|
+          block.call(context, self).each do |key, value|
             # Child class values take precedence (don't overwrite)
             data[key] = value unless data.has_key?(key)
           end
