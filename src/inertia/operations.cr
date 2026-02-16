@@ -21,18 +21,21 @@ module Inertia
   module Operations
     macro included
       include Inertia::ValidationErrors
-      before share_validation_errors_with_inertia
       after clear_validation_errors_from_flash
     end
-
-    # Share errors from flash with Inertia as props
-    # This runs before every action via the `before` pipe
-    private def share_validation_errors_with_inertia
+    
+    # Override collect_shared_data to include validation errors
+    def collect_shared_data : Hash(String, JSON::Any)
+      data = previous_def
+      
       if inertia?
         errors = errors_from_flash
-        inertia_share(errors: errors) unless errors.empty?
+        unless errors.empty?
+          data["errors"] = JSON.parse(errors.to_json)
+        end
       end
-      continue
+      
+      data
     end
     
     # Clean up flash errors after request
