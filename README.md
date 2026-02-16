@@ -28,16 +28,16 @@ To use Inertia.js you need a server side adapter (like this) and a client side a
 4. Run the installer task
     ```shell
     # For Vue3
-    lucky inertia.install vue
+    lucky inertia.setup vue
 
     # For React
-    lucky inertia.install react
+    lucky inertia.setup react
 
     # For Svelte
-    lucky inertia.install svelte
+    lucky inertia.setup svelte
 
     # Or the bring-your-own-framework method
-    lucky intertia.install
+    lucky intertia.setup
     ```
 
 5. If you selected a framework to be installed, import the newly created `src/js/inertia.js` file in your `app.js`
@@ -72,7 +72,237 @@ class App::Index < InertiaAction
 end
 ```
 
-The above will tell the Inertia.js frontend to open the page registered as `TestPage`. Using the default installation this will be the file located at `src/js/Pages/TestPage.{vue,svelte,jsx}`.
+The above will tell the Inertia.js frontend to open the page registered as `Index`. Using the default installation this will be the file located at `src/js/Pages/Index.{vue,svelte,jsx}`.
+
+### Passing Props
+
+You can pass data to your frontend components using the `props` parameter:
+
+```crystal
+class Users::Show < InertiaAction
+  get "/users/:id" do
+    user = UserQuery.find(id)
+    inertia "Users/Show", props: {
+      user: user.to_json,
+      can_edit: user.id == current_user.id
+    }
+  end
+end
+```
+
+## Advanced Features
+
+### Shared Data
+
+Share data across all Inertia responses using the `inertia_share` macro in your base action:
+
+```crystal
+abstract class InertiaAction < Lucky::Action
+  include Inertia::SharedData
+  
+  inertia_share(
+    auth: -> { current_user.try(&.to_json) },
+    flash: -> { flash.to_h }
+  )
+end
+```
+
+Now `auth` and `flash` will be available as props in all your Inertia pages.
+
+### Form Validation with Operations
+
+Include `Inertia::Operations` to automatically handle validation errors with the POST-Redirect-GET pattern:
+
+```crystal
+abstract class InertiaAction < Lucky::Action
+  include Inertia::Operations
+end
+
+class Users::Create < InertiaAction
+  post "/users" do
+    SaveUser.create(params) do |operation, user|
+      if operation.saved?
+        flash.success = "User created!"
+        redirect to: Users::Show.with(user.id)
+      else
+        # Errors automatically stored in flash and shared on next request
+        store_errors_in_flash(operation)
+        flash.failure = "Please fix the errors"
+        redirect to: Users::New
+      end
+    end
+  end
+end
+```
+
+Errors will be automatically available in your frontend as `errors` prop:
+
+```vue
+<template>
+  <form @submit.prevent="submit">
+    <input v-model="form.name" />
+    <span v-if="errors.name">{{ errors.name[0] }}</span>
+    
+    <button type="submit">Save</button>
+  </form>
+</template>
+
+<script setup>
+import { useForm, usePage } from '@inertiajs/vue3'
+
+const { errors } = usePage().props
+
+const form = useForm({
+  name: ''
+})
+
+function submit() {
+  form.post('/users')
+}
+</script>
+```
+
+### Flash Messages
+
+Include `Inertia::FlashIntegration` to automatically share flash messages:
+
+```crystal
+abstract class InertiaAction < Lucky::Action
+  include Inertia::FlashIntegration
+end
+```
+
+Flash messages will be available as the `flash` prop in your components.
+
+### Lazy Data Evaluation
+
+Defer expensive computations until they're actually needed:
+
+```crystal
+class Users::Index < InertiaAction
+  get "/users" do
+    inertia "Users/Index", props: {
+      users: Inertia.lazy { User.all.map(&.to_json) },  # Only loaded when requested
+      total: User.count
+    }
+  end
+end
+```
+
+### Partial Reloads
+
+Combine lazy props with partial reloads for better performance. On the frontend:
+
+```javascript
+// Only reload the "users" prop
+router.reload({ only: ['users'] })
+
+// Reload everything except "archived_users"
+router.reload({ except: ['archived_users'] })
+```
+
+### Request Detection Helpers
+
+Check if the current request is an Inertia request:
+
+```crystal
+class Users::Index < InertiaAction
+  get "/users" do
+    if inertia?
+      # This is an Inertia XHR request
+      inertia "Users/Index", props: { users: users }
+    else
+      # This is a regular page load
+      inertia "Users/Index", props: { users: users }
+    end
+  end
+end
+```
+
+Available helpers:
+- `inertia?` - Check if request is from Inertia
+- `inertia_partial?` - Check if request is a partial reload
+- `partial_only` - Get array of props requested in partial reload
+- `partial_except` - Get array of props excluded in partial reload
+
+### External Redirects
+
+Handle external URL redirects properly:
+
+```crystal
+class OAuth::Callback < InertiaAction
+  get "/auth/callback" do
+    # Inertia will handle this with a 409 response
+    handle_redirect("https://external-site.com/welcome")
+  end
+end
+```
+
+### View Data
+
+Pass data to your root layout that isn't included in the Inertia page props:
+
+```crystal
+class Users::Show < InertiaAction
+  get "/users/:id" do
+    user = UserQuery.find(id)
+    inertia "Users/Show", 
+      props: { user: user.to_json },
+      view_data: { page_title: "User Profile - #{user.name}" }
+  end
+end
+```
+
+### Configuration
+
+Configure Inertia in `config/inertia.cr`:
+
+```crystal
+Inertia.configure do |settings|
+  # Asset versioning for cache busting
+  settings.version = "v1.0.0"
+  
+  # Server-side rendering
+  settings.ssr_enabled = false
+  settings.ssr_url = "http://localhost:13714"
+  settings.ssr_timeout = 30.seconds
+  
+  # Data management
+  settings.deep_merge_shared_data = false
+  settings.include_flash = true
+  settings.include_errors = true
+end
+```
+
+### Testing
+
+Use the provided spec helpers to test your Inertia responses:
+
+```crystal
+require "inertia/spec_helpers"
+
+include Inertia::SpecHelpers
+
+describe "Users::Index" do
+  it "renders inertia component" do
+    response = client.get("/users", headers: inertia_headers)
+    
+    assert_inertia_component(response, "Users/Index")
+    assert_inertia_props(response) do |props|
+      props["users"].as_a.size.should eq(10)
+    end
+  end
+  
+  it "handles partial reloads" do
+    response = client.get(
+      "/users",
+      headers: inertia_partial_headers("Users/Index", only: ["users"])
+    )
+    
+    assert_inertia_component(response, "Users/Index")
+  end
+end
+```
 
 ### SSR
 
