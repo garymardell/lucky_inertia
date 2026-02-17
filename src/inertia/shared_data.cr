@@ -18,7 +18,12 @@ module Inertia
       
       # Override collect_shared_data to include these props
       def collect_shared_data : Hash(String, JSON::Any)
-        data = previous_def
+        # Call previous definition if it exists, otherwise start with empty hash
+        data = {% if @type.methods.map(&.name.stringify).includes?("collect_shared_data") %}
+          previous_def
+        {% else %}
+          Hash(String, JSON::Any).new
+        {% end %}
         
         {% for key, value in props %}
           {% if value.is_a?(ProcLiteral) %}
@@ -34,8 +39,7 @@ module Inertia
       end
     end
 
-    # Collect shared data from the class hierarchy
-    # Child classes inherit shared data from parents
+    # Base implementation - provides the starting point for previous_def chain
     def collect_shared_data : Hash(String, JSON::Any)
       Hash(String, JSON::Any).new
     end
